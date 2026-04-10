@@ -207,7 +207,7 @@ create policy "Allow anon delete" on insights for delete using (true);
 
 ## Результаты
 
-- Дашборд: [VERCEL_URL]
-- Репо: [GITHUB_URL]
+- Дашборд: [https://test-orders-dashboard.vercel.app/]
+- Репо: [https://github.com/darkhan2409/test_orders-dashboard]
 - Скриншот RetailCRM: см. `screenshots/screen_1.PNG`
 - Скриншот Telegram уведомления: см. `screenshots/screen_2.PNG`
