@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nova — Аналитика заказов</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    /* Шапка */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 32px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .header-title {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .header-title h1 { font-size: 20px; font-weight: 700; color: #f1f5f9; }
+    .header-title span { font-size: 13px; color: #64748b; }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-outline { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+    .btn-outline.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .btn-ai { background: #7c3aed; color: #fff; }
+    .btn-ai:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      padding: 12px 18px; border-radius: 8px;
+      font-size: 13px; color: #fff;
+      opacity: 0; transform: translateY(8px);
+      transition: opacity 0.25s, transform 0.25s;
+      z-index: 999; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { background: #ef4444; }
+    .toast.success { background: #10b981; }
+
+    /* Основной контент */
+    .container { max-width: 1280px; margin: 0 auto; padding: 24px 32px; }
+
+    /* Фильтры */
+    .filters {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .filter-label { font-size: 13px; color: #64748b; }
+    .filter-group { display: flex; gap: 6px; }
+    .filter-divider { width: 1px; height: 24px; background: #1e293b; margin: 0 4px; }
+
+    select.filter-select {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+    }
+
+    /* Карточки KPI */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 20px 24px;
+      border: 1px solid #334155;
+    }
+    .kpi-label { font-size: 13px; color: #64748b; margin-bottom: 8px; }
+    .kpi-value { font-size: 28px; font-weight: 700; color: #f1f5f9; }
+    .kpi-sub { font-size: 12px; color: #475569; margin-top: 4px; }
+
+    /* Графики */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .chart-card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 20px 24px;
+      border: 1px solid #334155;
+    }
+    .chart-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .chart-wrap { position: relative; height: 240px; }
+
+    /* AI-инсайты */
+    .ai-section { margin-bottom: 24px; }
+    .ai-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .ai-title { font-size: 16px; font-weight: 600; color: #f1f5f9; }
+    .ai-date { font-size: 12px; color: #475569; }
+    .ai-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .ai-card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 16px 20px;
+      border: 1px solid #334155;
+      border-left: 3px solid #3b82f6;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #cbd5e1;
+    }
+    .ai-empty {
+      color: #475569;
+      font-size: 14px;
+      padding: 20px;
+      background: #1e293b;
+      border-radius: 12px;
+      border: 1px dashed #334155;
+    }
+
+    /* Ошибка / загрузка */
+    .status-msg {
+      text-align: center;
+      padding: 60px 20px;
+      color: #475569;
+      font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .header { padding: 16px 20px; }
+      .container { padding: 16px 20px; }
+      .kpi-grid { grid-template-columns: 1fr; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .ai-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Шапка -->
+<header class="header">
+  <div class="header-title">
+    <h1>Nova — Аналитика заказов</h1>
+    <span id="last-sync">Загрузка...</span>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-ai" id="btn-generate-ai" onclick="generateInsights()">Обновить AI</button>
+    <button class="btn btn-primary" onclick="downloadCSV()">Скачать CSV</button>
+  </div>
+</header>
+
+<div class="toast" id="toast"></div>
+
+<!-- Основной контент -->
+<main class="container">
+
+  <!-- Фильтры -->
+  <div class="filters">
+    <span class="filter-label">Период:</span>
+    <div class="filter-group">
+      <button class="btn btn-outline active" onclick="setPeriod(this, 0)">Все время</button>
+      <button class="btn btn-outline" onclick="setPeriod(this, 30)">30 дней</button>
+      <button class="btn btn-outline" onclick="setPeriod(this, 7)">7 дней</button>
+    </div>
+    <div class="filter-divider"></div>
+    <span class="filter-label">Город:</span>
+    <select class="filter-select" id="city-filter" onchange="applyFilters()">
+      <option value="">Все города</option>
+    </select>
+  </div>
+
+  <!-- KPI карточки -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-label">Всего заказов</div>
+      <div class="kpi-value" id="kpi-count">—</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Общая сумма</div>
+      <div class="kpi-value" id="kpi-total">—</div>
+      <div class="kpi-sub">KZT</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Средний чек</div>
+      <div class="kpi-value" id="kpi-avg">—</div>
+      <div class="kpi-sub">KZT</div>
+    </div>
+  </div>
+
+  <!-- Графики -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title">Заказы по дням</div>
+      <div class="chart-wrap"><canvas id="chart-days"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Города</div>
+      <div class="chart-wrap"><canvas id="chart-cities"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Источники трафика</div>
+      <div class="chart-wrap"><canvas id="chart-utm"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Топ товаров по выручке</div>
+      <div class="chart-wrap"><canvas id="chart-products"></canvas></div>
+    </div>
+  </div>
+
+  <!-- AI-аналитика -->
+  <div class="ai-section">
+    <div class="ai-header">
+      <span class="ai-title">AI-аналитика</span>
+      <span class="ai-date" id="ai-date"></span>
+    </div>
+    <div id="ai-insights"><div class="ai-empty">Запустите generate_insights.py для генерации AI-рекомендаций</div></div>
+  </div>
+
+</main>
+
+<script>
+  // --- Конфигурация Supabase ---
+  const SUPABASE_URL = 'https://wrobacrmrjuxniskjqwb.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indyb2JhY3Jtcmp1eG5pc2tqcXdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3OTEzNjksImV4cCI6MjA5MTM2NzM2OX0.o5QUYzPrE0Yi99YKhDz8GuwfXf1XJbSpMFdEXNpOgQ0';
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // --- Глобальное состояние ---
+  let allOrders = [];
+  let allItems = [];
+  let filteredOrders = [];
+  let activePeriodDays = 0; // 0 = все время
+  let charts = {};
+
+  // --- Цвета для графиков ---
+  const PALETTE = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#84cc16'];
+
+  // --- Загрузка данных ---
+  async function loadData() {
+    try {
+      const [ordersRes, itemsRes, insightsRes] = await Promise.all([
+        sb.from('orders').select('*').order('created_at', { ascending: true }),
+        sb.from('order_items').select('*'),
+        sb.from('insights').select('*').order('generated_at', { ascending: false }),
+      ]);
+
+      if (ordersRes.error) throw ordersRes.error;
+      if (itemsRes.error) throw itemsRes.error;
+
+      allOrders = ordersRes.data || [];
+      allItems = itemsRes.data || [];
+
+      // Заполнить dropdown городов
+      const cities = [...new Set(allOrders.map(o => o.city).filter(Boolean))].sort();
+      const select = document.getElementById('city-filter');
+      cities.forEach(city => {
+        const opt = document.createElement('option');
+        opt.value = city;
+        opt.textContent = city;
+        select.appendChild(opt);
+      });
+
+      // Дата последней синхронизации
+      if (allOrders.length) {
+        const latest = allOrders.reduce((a, b) =>
+          new Date(a.synced_at) > new Date(b.synced_at) ? a : b
+        );
+        document.getElementById('last-sync').textContent =
+          'Обновлено: ' + formatDate(latest.synced_at);
+      }
+
+      // Отрисовать AI-инсайты
+      renderInsights(insightsRes.data || []);
+
+      applyFilters();
+
+    } catch (err) {
+      document.querySelector('main').innerHTML =
+        `<div class="status-msg">Ошибка загрузки данных: ${err.message}</div>`;
+    }
+  }
+
+  // --- Фильтрация ---
+  function setPeriod(btn, days) {
+    document.querySelectorAll('.filter-group .btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activePeriodDays = days;
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const city = document.getElementById('city-filter').value;
+    const now = new Date();
+
+    filteredOrders = allOrders.filter(order => {
+      if (city && order.city !== city) return false;
+      if (activePeriodDays > 0) {
+        const created = new Date(order.created_at.replace(' ', 'T'));
+        const diffDays = (now - created) / (1000 * 60 * 60 * 24);
+        if (diffDays > activePeriodDays) return false;
+      }
+      return true;
+    });
+
+    renderKPI();
+    renderCharts();
+  }
+
+  // --- KPI с анимацией count-up ---
+  function countUp(el, target, suffix = '') {
+    const duration = 900;
+    const start = performance.now();
+    const from = 0;
+
+    function update(now) {
+      const elapsed = now - start;
+      const progress = Math.min(elapsed / duration, 1);
+      // ease-out
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const value = Math.round(from + (target - from) * eased);
+      el.textContent = formatNumber(value) + suffix;
+      if (progress < 1) requestAnimationFrame(update);
+    }
+    requestAnimationFrame(update);
+  }
+
+  function renderKPI() {
+    const count = filteredOrders.length;
+    const total = filteredOrders.reduce((s, o) => s + (o.total || 0), 0);
+    const avg = count > 0 ? Math.round(total / count) : 0;
+
+    countUp(document.getElementById('kpi-count'), count);
+    countUp(document.getElementById('kpi-total'), total);
+    countUp(document.getElementById('kpi-avg'), avg);
+  }
+
+  // --- Графики ---
+  function renderCharts() {
+    renderDaysChart();
+    renderCitiesChart();
+    renderUtmChart();
+    renderProductsChart();
+  }
+
+  function getOrCreateChart(id, config) {
+    if (charts[id]) charts[id].destroy();
+    const ctx = document.getElementById(id).getContext('2d');
+    charts[id] = new Chart(ctx, config);
+  }
+
+  function renderDaysChart() {
+    // Группировка по дате
+    const byDay = {};
+    filteredOrders.forEach(o => {
+      const day = o.created_at.slice(0, 10);
+      byDay[day] = (byDay[day] || 0) + 1;
+    });
+    const labels = Object.keys(byDay).sort();
+    const values = labels.map(d => byDay[d]);
+
+    getOrCreateChart('chart-days', {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Заказов',
+          data: values,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: '#3b82f6',
+        }]
+      },
+      options: chartOptions(''),
+    });
+  }
+
+  function renderCitiesChart() {
+    const byCity = {};
+    filteredOrders.forEach(o => {
+      const c = o.city || 'Не указан';
+      byCity[c] = (byCity[c] || 0) + 1;
+    });
+    const labels = Object.keys(byCity);
+    const values = labels.map(c => byCity[c]);
+
+    getOrCreateChart('chart-cities', {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{ data: values, backgroundColor: PALETTE, borderWidth: 0 }]
+      },
+      options: {
+        ...chartOptions(''),
+        cutout: '60%',
+        plugins: {
+          legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 12 }, padding: 12 } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}` } },
+        }
+      }
+    });
+  }
+
+  function renderUtmChart() {
+    const byUtm = {};
+    filteredOrders.forEach(o => {
+      const u = o.utm_source || 'Не указан';
+      byUtm[u] = (byUtm[u] || 0) + 1;
+    });
+    const sorted = Object.entries(byUtm).sort((a, b) => b[1] - a[1]);
+    const labels = sorted.map(e => e[0]);
+    const values = sorted.map(e => e[1]);
+
+    getOrCreateChart('chart-utm', {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Заказов',
+          data: values,
+          backgroundColor: PALETTE,
+          borderRadius: 6,
+        }]
+      },
+      options: chartOptions('Заказов'),
+    });
+  }
+
+  function renderProductsChart() {
+    // Товары только для отфильтрованных заказов
+    const orderIds = new Set(filteredOrders.map(o => o.id));
+    const byProduct = {};
+    allItems
+      .filter(item => orderIds.has(item.order_id))
+      .forEach(item => {
+        const name = item.product_name || 'Неизвестно';
+        byProduct[name] = (byProduct[name] || 0) + item.price * item.quantity;
+      });
+
+    const sorted = Object.entries(byProduct).sort((a, b) => b[1] - a[1]);
+    // Сокращаем длинные названия
+    const labels = sorted.map(e => e[0].replace('Корректирующ', 'Корр.').replace('Утягивающ', 'Утяг.'));
+    const values = sorted.map(e => e[1]);
+
+    getOrCreateChart('chart-products', {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Выручка KZT',
+          data: values,
+          backgroundColor: '#8b5cf6',
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        ...chartOptions('KZT'),
+        indexAxis: 'y',
+      }
+    });
+  }
+
+  function chartOptions(yLabel) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${formatNumber(ctx.raw)} ${yLabel}`.trimEnd()
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } },
+        y: { ticks: { color: '#64748b', font: { size: 11 } }, grid: { color: '#1e293b' } },
+      }
+    };
+  }
+
+  // --- AI-инсайты ---
+  function renderInsights(insights) {
+    const container = document.getElementById('ai-insights');
+    if (!insights.length) return;
+
+    const dateEl = document.getElementById('ai-date');
+    dateEl.textContent = 'Сгенерировано: ' + formatDate(insights[0].generated_at);
+
+    container.innerHTML = `<div class="ai-grid">${
+      insights.map(i => `<div class="ai-card">${i.content}</div>`).join('')
+    }</div>`;
+  }
+
+  // --- Toast-уведомление ---
+  function showToast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast ${type} show`;
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => { el.className = `toast ${type}`; }, 4000);
+  }
+
+  // --- Генерация AI-инсайтов через Vercel serverless function ---
+  async function generateInsights() {
+    const btn = document.getElementById('btn-generate-ai');
+    btn.disabled = true;
+    btn.textContent = 'Генерирую...';
+
+    try {
+      const res = await fetch('/api/generate-insights', { method: 'POST' });
+      const json = await res.json();
+
+      if (!res.ok) {
+        showToast('Ошибка: ' + (json.error || res.statusText), 'error');
+        return;
+      }
+
+      renderInsights(json.insights || []);
+      showToast('AI-аналитика обновлена', 'success');
+
+    } catch (err) {
+      showToast('Ошибка: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Обновить AI';
+    }
+  }
+
+  // --- CSV экспорт ---
+  function downloadCSV() {
+    const headers = ['id', 'number', 'status', 'total', 'created_at', 'customer_name', 'city', 'utm_source'];
+    const rows = filteredOrders.map(o =>
+      headers.map(h => JSON.stringify(o[h] ?? '')).join(',')
+    );
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nova-orders-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // --- Утилиты ---
+  function formatNumber(n) {
+    return n.toLocaleString('ru-RU');
+  }
+
+  function formatDate(str) {
+    if (!str) return '';
+    return new Date(str.replace(' ', 'T')).toLocaleDateString('ru-RU', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  // --- Запуск ---
+  loadData();
+</script>
+</body>
+</html>
